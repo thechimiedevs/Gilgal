@@ -1,77 +1,28 @@
-/* Gilgal Ground Chalets — mobile booking + front desk.
-   No build step: state lives in `state`, every change re-renders the current screen. */
+/* Gilgal Ground Chalets — guest booking (/) and front desk (/admin).
+   No build step: state lives in `state`, every change re-renders the current screen.
+   Booking rules come from lib/core.js (window.GG), shared with the API. */
 (() => {
   'use strict';
 
-  // ── Data ────────────────────────────────────────────────────────────────
-  const D = (() => {
-    const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
-    const B = [
-      { id: 'b1', name: 'Building One', floors: [
-        { name: 'Ground floor', nums: range(101, 108), note: 'Entrance · Stairs', cap: 4 },
-        { name: 'Upper floor', nums: range(111, 118), note: 'Stairs', cap: 4 } ] },
-      { id: 'b2', name: 'Building Two', floors: [
-        { name: 'Single floor', nums: range(201, 210), note: 'Entrance', cap: 5 } ] }
-    ];
-    const META = {};
-    B.forEach(b => b.floors.forEach(f => f.nums.forEach(n => (META[n] = { b: b.name, f: f.name, cap: f.cap }))));
-    const ALL = B.flatMap(b => b.floors.flatMap(f => f.nums));
-    // Open days: Fri–Sun for five weekends from Fri 2 Oct 2026. Index k = week * 3 + day.
-    const OPEN = [];
-    for (let w = 0; w < 5; w++) for (let p = 0; p < 3; p++) OPEN.push(new Date(2026, 9, 2 + 7 * w + p));
-    const MALE = ['Chinedu Okafor','Adebayo Ogunleye','Emeka Nwosu','Ibrahim Musa','Tunde Bakare','Obinna Chukwu','Segun Adeleke','Uche Nnamdi','Femi Ajayi','Yusuf Danjuma','Babatunde Coker','Kelechi Ibe','Musa Garba','Olumide Ayodele','Chukwuma Obi'];
-    const FEMALE = ['Ngozi Eze','Funmilayo Adeyemi','Aisha Bello','Chiamaka Nwankwo','Yetunde Alabi','Halima Abubakar','Kemi Oladipo','Zainab Lawal','Amaka Igwe','Nkechi Okonkwo','Ifeoma Onyeka','Hauwa Sani','Folake Ogun','Temitope Ojo','Bisola Adewale'];
-    const FAM = ['Okonkwo','Adeyemi','Bello','Eze','Nwosu','Lawal','Ogunleye','Danjuma','Ojo','Igwe','Abubakar','Bakare','Nnamdi','Oladipo'];
-    // The current weekend (week 3) is fixed so the front desk always has arrivals and departures.
-    const FIX = [
-      [101,'fam',0,2,'Okonkwo family',4],[103,'fam',1,2,'Adeyemi family',4],[106,'fam',0,1,'Bello family',4],[111,'fam',0,2,'Eze family',4],[117,'fam',1,1,'Nwosu family',4],
-      [201,'fam',0,2,'Lawal family',5],[204,'fam',1,2,'Ogunleye family',5],[209,'fam',0,1,'Danjuma family',5],
-      [102,'ind',0,2,'Ngozi Eze','F'],[102,'ind',0,1,'Aisha Bello','F'],[102,'ind',1,2,'Kemi Oladipo','F'],
-      [104,'ind',0,2,'Emeka Nwosu','M'],[104,'ind',1,2,'Tunde Bakare','M'],[104,'ind',0,1,'Segun Adeleke','M'],[104,'ind',0,2,'Femi Ajayi','M'],
-      [107,'ind',1,2,'Halima Abubakar','F'],[112,'ind',0,1,'Ibrahim Musa','M'],[112,'ind',1,2,'Yusuf Danjuma','M'],
-      [115,'ind',0,2,'Zainab Lawal','F'],[115,'ind',0,2,'Amaka Igwe','F'],
-      [202,'ind',0,2,'Obinna Chukwu','M'],[202,'ind',1,2,'Uche Nnamdi','M'],[202,'ind',0,2,'Kelechi Ibe','M'],
-      [205,'ind',0,1,'Nkechi Okonkwo','F'],[205,'ind',0,2,'Folake Ogun','F'],[205,'ind',1,2,'Hauwa Sani','F'],[205,'ind',1,2,'Ifeoma Onyeka','F'],[205,'ind',0,2,'Temitope Ojo','F'],
-      [207,'ind',1,1,'Musa Garba','M']
-    ];
-    const rng = seed => { let s = seed % 2147483647; return () => (s = (s * 16807) % 2147483647) / 2147483647; };
-    const BK = []; let id = 0;
-    ALL.forEach(n => {
-      const r = rng(n * 131 + 7), cap = META[n].cap;
-      for (let w = 0; w < 5; w++) {
-        if (w === 3) continue;
-        const x = r();
-        if (x < 0.25) {
-          const s = r() < 0.6 ? 0 : 1, e = s + Math.floor(r() * (3 - s));
-          BK.push({ id: id++, room: n, w, s, e, type: 'fam', size: r() < 0.5 ? 4 : cap, name: FAM[Math.floor(r() * FAM.length)] + ' family' });
-        } else if (x < 0.7) {
-          const g = r() < 0.5 ? 'F' : 'M', list = g === 'F' ? FEMALE : MALE, cnt = 1 + Math.floor(r() * (cap - 1));
-          for (let i = 0; i < cnt; i++) { const s = Math.floor(r() * 3), e = s + Math.floor(r() * (3 - s)); BK.push({ id: id++, room: n, w, s, e, type: 'ind', g, name: list[Math.floor(r() * list.length)] }); }
-        }
-      }
-    });
-    FIX.forEach(([room, type, s, e, name, x]) => BK.push(type === 'fam' ? { id: id++, room, w: 3, s, e, type, name, size: x } : { id: id++, room, w: 3, s, e, type, name, g: x }));
-    const bedCount = {};
-    BK.filter(b => b.type === 'ind').forEach(b => { const k = b.room + '-' + b.w; bedCount[k] = (bedCount[k] || 0) + 1; b.bed = bedCount[k]; });
-    BK.forEach(b => (b.church = 'The Ecclesia Embassy'));
-    const PHONES = ['+234 803 412 0318', '+234 806 551 0527', '+234 810 316 0164', '+234 902 870 0772', '+234 705 190 0455'];
-    // TODAY = index of Sat 24 Oct in OPEN.
-    return { B, META, ALL, OPEN, BK, PHONES, TODAY: 10, TOTAL: ALL.reduce((a, n) => a + META[n].cap, 0) };
-  })();
-
-  const REF = 'GGC-26-0142';
+  const { BUILDINGS, META, ALL, TOTAL } = GG;
+  const IS_ADMIN = /\/admin\/?$/.test(location.pathname) || location.hash.startsWith('#/admin');
 
   // ── State ───────────────────────────────────────────────────────────────
   const GUEST = ['welcome', 'rules', 'type', 'days', 'rooms', 'details', 'confirmed'];
   const DESK = ['calendar', 'dayview', 'checkin', 'checkout'];
+  const TODAY = GG.today();
+  const firstDay = GG.nextOpen(TODAY);
 
   let state = {
-    screen: 'welcome', rulesNext: 'type',
-    gs: 12, ge: 14, sel: null, tab: 'b1', btype: 'ind', gender: 'F', size: 4, agree: false,
-    name: 'Chiamaka Obi', church: 'The Ecclesia Embassy', email: 'chiamaka.obi@mail.com', phone: '+234 803 555 0142',
-    confirmed: null,
-    aDay: D.TODAY, inIdx: 0, outIdx: 0,
-    matOk: {}, keyDone: {}, keyNo: {}, retKey: {}, retMat: {}, retClean: {}, returned: {}
+    screen: IS_ADMIN ? 'loading' : 'welcome', rulesNext: 'type',
+    // guest
+    gs: firstDay, ge: GG.sundayOf(firstDay), gMonth: firstDay.slice(0, 7),
+    sel: null, tab: 'b1', btype: 'ind', gender: 'F', size: 4, agree: false,
+    name: '', church: '', email: '', phone: '',
+    avail: [], availAt: 0, confirmed: null, busy: false, error: '',
+    // front desk
+    bookings: [], aDay: firstDay, aMonth: firstDay.slice(0, 7), inIdx: 0, outIdx: 0, keyDraft: {},
+    password: '', loginErr: ''
   };
 
   function setState(patch) {
@@ -80,28 +31,81 @@
     render();
   }
 
+  const hashOf = screen => IS_ADMIN && location.pathname.endsWith('/admin') ? '#/' + screen : (IS_ADMIN ? '#/admin/' : '#/') + screen;
   function go(screen, extra) {
-    const hash = '#/' + screen;
-    if (location.hash !== hash) history.pushState(null, '', hash);
-    setState({ screen, ...extra });
+    if (location.hash !== hashOf(screen)) history.pushState(null, '', hashOf(screen));
+    setState({ screen, error: '', ...extra });
     const main = document.querySelector('.main');
     if (main) main.scrollTop = 0;
+    if (screen === 'days' || screen === 'rooms') loadAvail();
+  }
+  window.addEventListener('popstate', () => {
+    const s = location.hash.replace(/^#\/(admin\/)?/, '');
+    if (IS_ADMIN) { if (state.screen !== 'login') setState({ screen: DESK.includes(s) ? s : 'calendar' }); }
+    else setState({ screen: GUEST.includes(s) && s !== 'confirmed' ? s : 'welcome' });
+  });
+
+  // ── API ─────────────────────────────────────────────────────────────────
+  async function api(route, { method = 'GET', body, id } = {}) {
+    let r;
+    try {
+      r = await fetch(`/api/router?route=${route}${id ? '&id=' + encodeURIComponent(id) : ''}`, {
+        method, credentials: 'same-origin',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (_) {
+      throw Object.assign(new Error('Can’t reach the booking service. Check your connection.'), { status: 0 });
+    }
+    let data = null;
+    try { data = await r.json(); } catch (_) { /* not JSON */ }
+    if (!r.ok) throw Object.assign(new Error((data && data.error) || `Something went wrong (${r.status}).`), { status: r.status });
+    return data;
   }
 
-  window.addEventListener('popstate', () => {
-    const s = location.hash.replace(/^#\/?/, '');
-    setState({ screen: GUEST.includes(s) || DESK.includes(s) ? s : 'welcome' });
-  });
+  async function loadAvail(force) {
+    if (!force && Date.now() - state.availAt < 15000) return;
+    try {
+      const d = await api('availability');
+      setState({ avail: d.bookings, availAt: Date.now() });
+    } catch (e) { setState({ error: e.message }); }
+  }
+
+  async function loadDesk() {
+    try {
+      const d = await api('bookings');
+      setState({ bookings: d.bookings });
+    } catch (e) {
+      if (e.status === 401) setState({ screen: 'login' });
+      else setState({ error: e.message });
+    }
+  }
+
+  async function patchBooking(id, patch) {
+    // Optimistic: show the change now, then sync with the server's copy.
+    setState(s => ({ bookings: s.bookings.map(b => (b.id === id ? { ...b, ...patch, ...(patch.keyDone ? { keyDone: new Date().toISOString() } : {}), ...(patch.returned ? { returned: new Date().toISOString() } : {}) } : b)), error: '' }));
+    try {
+      const b = await api('bookings', { method: 'PATCH', id, body: patch });
+      setState(s => ({ bookings: s.bookings.map(x => (x.id === id ? b : x)) }));
+    } catch (e) {
+      if (e.status === 401) return setState({ screen: 'login' });
+      setState({ error: e.message });
+      loadDesk();
+    }
+  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let handlers = [];
   const on = fn => (fn ? `data-on="${handlers.push(fn) - 1}"` : '');
   const onInput = fn => `data-in="${handlers.push(fn) - 1}"`;
+  const onChange = fn => `data-change="${handlers.push(fn) - 1}"`;
+  const onSubmit = fn => `data-submit="${handlers.push(fn) - 1}"`;
 
   const ICON = {
     arrow: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
     back: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
+    fwd: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>',
     prev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
     next: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>',
     check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
@@ -113,71 +117,52 @@
   const INK = '#231815', OR = '#E0571F', ORD = '#B8441A', ORT = '#FDE9DD', AMB = '#F9A935', SURF = '#F7F4F0', MUTE = 'rgba(35,24,21,.28)';
   const HATCH = 'repeating-linear-gradient(135deg, rgba(35,24,21,.10) 0 1.5px, transparent 1.5px 7px), #F7F4F0';
 
-  const fmt = (d, o) => d.toLocaleDateString('en-GB', o).replace(',', '');
-  const fmtK = k => fmt(D.OPEN[k], { weekday: 'short', day: 'numeric', month: 'short' });
-  const longK = k => fmt(D.OPEN[k], { weekday: 'long', day: 'numeric', month: 'short' });
-  const sK = b => b.w * 3 + b.s, eK = b => b.w * 3 + b.e;
-  const rangeTxt = (s, e) => s === e ? fmtK(s) : `${fmtK(s).replace(/ \w+$/, '')} – ${fmtK(e)}`;
+  const fmt = (s, o) => GG.toDate(s).toLocaleDateString('en-GB', { timeZone: 'UTC', ...o }).replace(',', '');
+  const fmtD = s => fmt(s, { weekday: 'short', day: 'numeric', month: 'short' });
+  const longD = s => fmt(s, { weekday: 'long', day: 'numeric', month: 'short' });
+  const monthLabel = ym => fmt(ym + '-01', { month: 'long', year: 'numeric' });
+  const rangeTxt = (s, e) => s === e ? fmtD(s) : `${fmtD(s).replace(/ \w+$/, '')} – ${fmtD(e)}`;
+  const timeOf = t => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: GG.TIME_ZONE });
   const matWord = n => `${n} mattress${n > 1 ? 'es' : ''}`;
-  // 35 cells of the Mon-first October 2026 grid, starting Mon 28 Sep.
-  const monthCells = () => Array.from({ length: 35 }, (_, i) => {
-    const d = new Date(2026, 8, 28 + i);
-    const inMonth = d.getMonth() === 9 || (d.getMonth() === 10 && d.getDate() === 1);
-    const k = D.OPEN.findIndex(o => o.getTime() === d.getTime());
-    return { d, inMonth, k };
-  });
-
-  // ── Availability ────────────────────────────────────────────────────────
-  // Who can use room n over open days gs..gEnd (same weekend)?
-  function roomState(n, gs, gEnd, btype, gender, size, extra) {
-    const cap = D.META[n].cap, w = Math.floor(gs / 3), s = gs % 3, e = gEnd % 3;
-    const ov = bookings(extra).filter(b => b.room === n && b.w === w && b.s <= e && b.e >= s);
-    const inds = ov.filter(b => b.type === 'ind'), lockG = inds[0]?.g || null;
-    let used = 0;
-    for (let p = s; p <= e; p++) used = Math.max(used, inds.filter(b => b.s <= p && p <= b.e).length);
-    const lockTxt = lockG ? (lockG === 'F' ? 'Women' : 'Men') : '';
-    if (ov.some(b => b.type === 'fam')) return { ok: false, used: cap, cap, label: 'Family', lock: '' };
-    if (btype === 'fam') {
-      if (ov.length) return { ok: false, used, cap, label: 'Shared', lock: lockTxt };
-      if (cap < size) return { ok: false, used: 0, cap, label: `Only ${cap} beds`, lock: '' };
-      return { ok: true, used: 0, cap, label: 'Available', lock: '' };
+  const addMonths = (ym, n) => { const d = GG.toDate(ym + '-15'); d.setUTCMonth(d.getUTCMonth() + n); return GG.iso(d).slice(0, 7); };
+  // Monday-first grid for a month: whole weeks, blanks outside the month.
+  function monthCells(ym) {
+    const first = ym + '-01', lead = (GG.dow(first) + 6) % 7;
+    const start = GG.addDays(first, -lead), cells = [];
+    for (let d = start; ; d = GG.addDays(d, 1)) {
+      if (d.slice(0, 7) > ym && cells.length % 7 === 0) break;
+      cells.push({ d, inMonth: d.slice(0, 7) === ym });
     }
-    if (lockG && lockG !== gender) return { ok: false, used, cap, label: lockG === 'F' ? 'Women only' : 'Men only', lock: lockTxt };
-    if (used >= cap) return { ok: false, used, cap, label: 'Full', lock: lockTxt };
-    return { ok: true, used, cap, label: `${cap - used} available`, lock: lockTxt };
+    return cells;
   }
-
-  // All bookings, plus the guest's own once confirmed (excluded while they're re-picking).
-  function bookings(excludeGuest) {
-    const g = state.confirmed;
-    return g && !excludeGuest ? [...D.BK, g] : D.BK;
-  }
-
-  function pickDay(k) {
-    let { gs, ge } = state;
-    if (ge != null || gs == null) { gs = k; ge = null; }
-    else if (Math.floor(k / 3) === Math.floor(gs / 3) && k > gs) ge = k;
-    else { gs = k; ge = null; }
-    setState({ gs, ge });
-  }
+  const errorLine = () => state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : '';
 
   // ── Guest values ────────────────────────────────────────────────────────
   function guestVals() {
-    const st = state, T = D.TODAY, isFam = st.btype === 'fam';
-    const gs = st.gs, gEnd = st.ge ?? st.gs, days = gEnd - gs + 1;
+    const st = state, isFam = st.btype === 'fam';
+    const gs = st.gs, gEnd = st.ge ?? st.gs, days = GG.daysIn(gs, gEnd).length;
+    const opt = { type: st.btype, gender: st.gender, size: st.size };
     const RS = {};
-    D.ALL.forEach(n => (RS[n] = roomState(n, gs, gEnd, st.btype, st.gender, st.size, true)));
-    const sel = st.sel && RS[st.sel].ok ? st.sel : (D.ALL.find(n => RS[n].ok) ?? null);
+    ALL.forEach(n => (RS[n] = GG.roomState(n, gs, gEnd, opt, st.avail)));
+    const sel = st.sel && RS[st.sel].ok ? st.sel : (ALL.find(n => RS[n].ok) ?? null);
     const okOf = nums => nums.filter(n => RS[n].ok).length;
     const bedsOf = nums => nums.reduce((a, n) => a + (RS[n].ok ? RS[n].cap - RS[n].used : 0), 0);
-    const m = sel ? D.META[sel] : { b: '', f: '', cap: 0 };
-    const myBed = sel ? RS[sel].used + 1 : 0;
+    const m = sel ? META[sel] : { b: '', f: '', cap: 0 };
+    const myBed = sel ? (GG.assignBed(sel, gs, gEnd, st.avail) || RS[sel].used + 1) : 0;
     return {
-      st, T, isFam, gs, gEnd, days, RS, sel, okOf, bedsOf, m, myBed,
+      isFam, gs, gEnd, days, RS, sel, okOf, bedsOf, m, myBed,
       whoTxt: isFam ? `Family of ${st.size}` : `Individual · ${st.gender === 'F' ? 'Female' : 'Male'}`,
       rangeTxt: rangeTxt(gs, gEnd),
       selWhat: sel ? (isFam ? `Whole room · ${m.cap} beds` : `Bed ${myBed} of ${m.cap} · ${RS[sel].lock || (st.gender === 'F' ? 'Women' : 'Men')} only`) : 'No room available'
     };
+  }
+
+  function pickDay(d) {
+    let { gs, ge } = state;
+    if (ge != null || gs == null) { gs = d; ge = null; }
+    else if (GG.weekendOf(d) === GG.weekendOf(gs) && d > gs) ge = d;
+    else { gs = d; ge = null; }
+    setState({ gs, ge });
   }
 
   // ── Screens: guest ──────────────────────────────────────────────────────
@@ -189,11 +174,16 @@
     </header>`;
   const cta = (label, fn, disabled, icon = ICON.arrow) =>
     `<button class="btn btn-primary cta" ${on(fn)} ${disabled ? 'disabled' : ''}><span>${label}</span>${icon}</button>`;
+  const RULES = [
+    ['Clean up your room', 'Leave it as you found it before you check out.'],
+    ['Return your mattress', 'Bring it back to the front desk with your key.'],
+    ['No noise', 'Keep it quiet for everyone on the grounds.']
+  ];
 
   function welcome() {
     return `
       <div class="main welcome-top">
-        <img src="assets/gilgal-logo.png" alt="Gilgal Ground Chalets" style="width:112px;height:auto">
+        <img src="/assets/gilgal-logo.png" alt="Gilgal Ground Chalets" style="width:112px;height:auto">
         <h1>Gilgal Ground Chalets</h1>
         <p>Book a whole room for your family, or a bed space for yourself.</p>
         <div class="grid3 rule-y stats">
@@ -209,23 +199,18 @@
           <div><b>03</b><span>Collect your key and mattress on arrival</span></div>
         </div>
         <button class="btn btn-white cta" ${on(() => go('rules', { rulesNext: 'type' }))}>Book a stay${ICON.arrow}</button>
-        <div class="welcome-links">
-          <button class="btn link-btn" ${on(() => go('rules', { rulesNext: 'welcome' }))}>Read the house rules</button>
-          <button class="btn link-btn dim" ${on(() => go('calendar'))}>Front desk</button>
-        </div>
+        <button class="btn link-btn" ${on(() => go('rules', { rulesNext: 'welcome' }))}>Read the Gilgal Ground Rules</button>
       </div>`;
   }
 
   function rules() {
-    const st = state, booking = st.rulesNext === 'type';
+    const st = state;
     return `
-      ${backBar('House rules', null, () => go('welcome'))}
+      ${backBar('Gilgal Ground Rules', null, () => go('welcome'))}
       <div class="main pad" style="gap:24px">
         <h1 style="font-size:32px">Before you book</h1>
         <div class="rule-top rules">
-          <div><span class="n">01</span><div><div class="t">Clean up your room</div><div class="d">Leave it as you found it before you check out.</div></div></div>
-          <div><span class="n">02</span><div><div class="t">Return your mattress</div><div class="d">Bring it back to the front desk with your key.</div></div></div>
-          <div><span class="n">03</span><div><div class="t">No noise</div><div class="d">Keep it quiet for everyone on the grounds.</div></div></div>
+          ${RULES.map(([t, d], i) => `<div><span class="n">0${i + 1}</span><div><div class="t">${t}</div><div class="d">${d}</div></div></div>`).join('')}
         </div>
         <div class="note">
           <div class="note-h">Good to know</div>
@@ -236,10 +221,9 @@
       <div class="foot">
         <button class="check" role="checkbox" aria-checked="${st.agree}" ${on(() => setState(s => ({ agree: !s.agree })))}>
           <span class="box ${st.agree ? 'on' : ''}">${st.agree ? ICON.check : ''}</span>
-          <span style="font-size:15px">I agree to the house rules</span>
+          <span style="font-size:15px">I agree to the Gilgal Ground Rules</span>
         </button>
-        ${booking ? cta('Continue', () => go('type'), !st.agree)
-          : cta('Book a stay', () => go('type'), !st.agree)}
+        ${cta(st.rulesNext === 'type' ? 'Continue' : 'Book a stay', () => go('type'), !st.agree)}
       </div>`;
   }
 
@@ -283,16 +267,19 @@
   }
 
   function days() {
-    const v = guestVals(), st = state, all = D.ALL;
-    const cells = monthCells().map(({ d, inMonth, k }) => {
-      const ok = k >= v.T, inR = k >= 0 && k >= v.gs && k <= v.gEnd, edge = k === v.gs || k === v.gEnd;
+    const v = guestVals(), st = state, max = GG.addDays(TODAY, GG.MAX_DAYS_AHEAD);
+    const cells = monthCells(st.gMonth).map(({ d, inMonth }) => {
+      if (!inMonth) return '<span></span>';
+      const ok = GG.isOpen(d) && d >= TODAY && d <= max;
+      const inR = d >= v.gs && d <= v.gEnd, edge = d === v.gs || d === v.gEnd;
       const style = `font-weight:${ok ? 700 : 400};background:${edge ? OR : inR ? ORT : '#fff'};color:${edge ? '#fff' : ok ? INK : MUTE};cursor:${ok ? 'pointer' : 'default'};box-shadow:${ok && !inR ? 'inset 0 0 0 1px rgba(224,87,31,.4)' : 'none'}`;
-      const label = inMonth ? d.getDate() : '';
+      const day = Number(d.slice(8));
       return ok
-        ? `<button style="${style}" aria-pressed="${inR}" aria-label="${esc(fmtK(k))}" ${on(() => pickDay(k))}>${label}</button>`
-        : `<button style="${style}" disabled tabindex="-1" aria-hidden="${!label}">${label}</button>`;
+        ? `<button style="${style}" aria-pressed="${inR}" aria-label="${esc(fmtD(d))}" ${on(() => pickDay(d))}>${day}</button>`
+        : `<button style="${style}" disabled tabindex="-1">${day}</button>`;
     }).join('');
-    const count = v.isFam ? v.okOf(all) : v.bedsOf(all);
+    const minM = TODAY.slice(0, 7), maxM = max.slice(0, 7);
+    const count = v.isFam ? v.okOf(ALL) : v.bedsOf(ALL);
     return `
       ${backBar(v.whoTxt, 2, () => go('type'))}
       <div class="main pad" style="padding-top:24px;gap:18px">
@@ -301,22 +288,23 @@
           <p class="lede">We’re open for bookings Friday to Sunday. Tap your first day, then your last.</p>
         </div>
         <div class="range rule-y">
-          <div><div class="cap-up">From</div><div class="v">${fmtK(v.gs)}</div></div>
-          <div><div class="cap-up">To</div><div class="v">${fmtK(v.gEnd)}</div></div>
+          <div><div class="cap-up">From</div><div class="v">${fmtD(v.gs)}</div></div>
+          <div><div class="cap-up">To</div><div class="v">${fmtD(v.gEnd)}</div></div>
           <div class="days"><div class="cap-up">Days</div><div class="v">${v.days}</div></div>
         </div>
         <div>
           <div class="month-head">
-            <span class="m">October 2026</span>
+            <span class="m">${monthLabel(st.gMonth)}</span>
             <div class="nav">
-              <button class="btn btn-secondary btn-icon" disabled aria-label="Previous month">${ICON.prev}</button>
-              <button class="btn btn-secondary btn-icon" disabled aria-label="Next month">${ICON.next}</button>
+              <button class="btn btn-secondary btn-icon" ${st.gMonth > minM ? on(() => setState(s => ({ gMonth: addMonths(s.gMonth, -1) }))) : 'disabled'} aria-label="Previous month">${ICON.prev}</button>
+              <button class="btn btn-secondary btn-icon" ${st.gMonth < maxM ? on(() => setState(s => ({ gMonth: addMonths(s.gMonth, 1) }))) : 'disabled'} aria-label="Next month">${ICON.next}</button>
             </div>
           </div>
           <div class="dow"><span>M</span><span>T</span><span>W</span><span>T</span><span class="open">F</span><span class="open">S</span><span class="open">S</span></div>
           <div class="gcal">${cells}</div>
         </div>
         <div class="avail"><b>${count}</b><span>${v.isFam ? `of 26 rooms available for a family of ${st.size}` : `bed spaces available to ${st.gender === 'F' ? 'women' : 'men'} on these days`}</span></div>
+        ${errorLine()}
       </div>
       <div class="foot">${cta('See available rooms', () => go('rooms'))}</div>`;
   }
@@ -342,8 +330,8 @@
           <span class="tile-s" style="color:${sub}">${esc(status)}</span>
         </button>`;
     };
-    const tabB = D.B.find(b => b.id === st.tab);
-    const btabs = D.B.map(b => {
+    const tabB = BUILDINGS.find(b => b.id === st.tab);
+    const btabs = BUILDINGS.map(b => {
       const nums = b.floors.flatMap(f => f.nums);
       return `<button aria-pressed="${b.id === st.tab}" ${on(() => setState({ tab: b.id }))}>
         <div class="n">${b.name}</div><div class="s">${b.floors[0].cap} beds/room · ${isFam ? v.okOf(nums) + ' rooms' : v.bedsOf(nums) + ' beds'} available</div>
@@ -367,6 +355,7 @@
       <div class="strip"><b>${esc(v.whoTxt)}</b><span>${v.rangeTxt}</span></div>
       <div class="btabs">${btabs}</div>
       <div class="main pad" style="padding:18px 20px;gap:18px">
+        ${errorLine()}
         ${floors}
         <div class="legend">
           <span><i style="box-shadow:inset 0 0 0 1.5px rgba(35,24,21,.4)"></i>Bed available</span>
@@ -380,24 +369,29 @@
       </div>`;
   }
 
+  async function confirmBooking() {
+    const v = guestVals(), st = state;
+    setState({ busy: true, error: '' });
+    try {
+      const b = await api('bookings', { method: 'POST', body: {
+        type: st.btype, size: st.size, gender: st.gender, room: v.sel, start: v.gs, end: v.gEnd,
+        name: st.name, church: st.church, email: st.email, phone: st.phone
+      } });
+      go('confirmed', { confirmed: b, busy: false, availAt: 0 });
+    } catch (e) {
+      setState({ busy: false });
+      if (e.status === 409) { await loadAvail(true); go('rooms', { sel: null }); setState({ error: e.message }); }
+      else setState({ error: e.message });
+    }
+  }
+
   function details() {
     const v = guestVals(), st = state, isFam = v.isFam;
-    const field = (id, label, key, typeAttr = 'text', extra = '') => `
+    const field = (id, label, key, typeAttr, extra = '') => `
       <div class="field"><label for="f-${id}">${label}</label>
         <input class="input" id="f-${id}" type="${typeAttr}" value="${esc(st[key])}" ${extra}
-          aria-invalid="${!String(st[key]).trim()}" ${onInput(e => setState({ [key]: e.target.value }))}></div>`;
-    const complete = ['name', 'church', 'email', 'phone'].every(k => String(st[k]).trim());
-    const confirm = () => {
-      const w = Math.floor(v.gs / 3), s = v.gs % 3, e = v.gEnd % 3;
-      const g = isFam
-        ? { id: 'g', room: v.sel, w, s, e, type: 'fam', size: st.size, name: `${st.name.trim().split(/\s+/).pop()} family` }
-        : { id: 'g', room: v.sel, w, s, e, type: 'ind', g: st.gender, name: st.name.trim(), bed: v.myBed };
-      g.church = st.church.trim();
-      g.email = st.email.trim();
-      g.phone = st.phone.trim();
-      g.ref = REF;
-      go('confirmed', { confirmed: g, sel: v.sel });
-    };
+          ${onInput(e => setState({ [key]: e.target.value }))}></div>`;
+    const complete = ['name', 'church', 'email', 'phone'].every(k => st[k].trim()) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.email.trim());
     return `
       ${backBar('Your details', 4, () => go('rooms'))}
       <div class="summary">
@@ -413,18 +407,18 @@
         ${field('church', 'Church name', 'church', 'text', 'placeholder="The Ecclesia Embassy"')}
         ${field('email', 'Email', 'email', 'email', 'autocomplete="email" inputmode="email"')}
         ${field('phone', 'Phone number', 'phone', 'tel', 'autocomplete="tel"')}
+        ${errorLine()}
       </form>
-      <div class="foot">${cta('Confirm booking', confirm, !complete || !v.sel)}</div>`;
+      <div class="foot">${cta(st.busy ? 'Booking…' : 'Confirm booking', confirmBooking, !complete || !v.sel || st.busy)}</div>`;
   }
 
   function downloadIcs(g) {
-    const ymd = d => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-    const start = D.OPEN[sK(g)], end = new Date(D.OPEN[eK(g)]); end.setDate(end.getDate() + 1);
+    const end = GG.addDays(g.end, 1).replace(/-/g, '');
     const what = g.type === 'fam' ? `whole room, ${g.size} people` : `bed ${g.bed}`;
     const ics = [
       'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Gilgal Ground Chalets//Booking//EN', 'BEGIN:VEVENT',
       `UID:${g.ref}@gilgal-chalets`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '')}`,
-      `DTSTART;VALUE=DATE:${ymd(start)}`, `DTEND;VALUE=DATE:${ymd(end)}`,
+      `DTSTART;VALUE=DATE:${g.start.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${end}`,
       `SUMMARY:Gilgal Ground Chalets — Room ${g.room}`,
       `DESCRIPTION:Booking ${g.ref} · ${what}. Collect your key and mattress at the front desk.`,
       'END:VEVENT', 'END:VCALENDAR'
@@ -438,12 +432,12 @@
 
   function confirmed() {
     const g = state.confirmed;
-    if (!g) return details();
-    const m = D.META[g.room], isFam = g.type === 'fam';
-    const first = (state.name || 'there').trim().split(/\s+/)[0];
+    if (!g) return welcome();
+    const m = META[g.room], isFam = g.type === 'fam';
+    const first = (g.lead || 'there').split(/\s+/)[0];
     return `
       <header class="brand-bar">
-        <img src="assets/gilgal-logo.png" alt="Gilgal">
+        <img src="/assets/gilgal-logo.png" alt="Gilgal">
         <span class="bar-title" style="letter-spacing:-.01em">Gilgal Ground Chalets</span>
         <span class="bar-step">5 / 5</span>
       </header>
@@ -459,110 +453,152 @@
             <div class="cell"><div class="cap">Mattresses</div><div class="val">${isFam ? `${g.size} — one each` : '1'}</div></div>
           </div>
           <div class="grid2" style="border-bottom:1px solid var(--line-soft)">
-            <div class="cell"><div class="cap">From</div><div class="val">${fmtK(sK(g))}</div></div>
-            <div class="cell"><div class="cap">To</div><div class="val">${fmtK(eK(g))}</div></div>
+            <div class="cell"><div class="cap">From</div><div class="val">${fmtD(g.start)}</div></div>
+            <div class="cell"><div class="cap">To</div><div class="val">${fmtD(g.end)}</div></div>
           </div>
-          <div style="display:flex;justify-content:space-between;padding:12px 0;font-size:14px"><span style="color:rgba(35,24,21,.65)">Reference</span><span style="font-weight:700;letter-spacing:.04em">${g.ref}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:12px 0;font-size:14px"><span style="color:rgba(35,24,21,.65)">Reference</span><span style="font-weight:700;letter-spacing:.04em">${esc(g.ref)}</span></div>
         </div>
         <div class="note" style="gap:0;padding:14px 16px">
-          <div class="note-h" style="margin-bottom:6px">House rules</div>
+          <div class="note-h" style="margin-bottom:6px">Gilgal Ground Rules</div>
           <div class="rules-mini">
             <div><b>01</b><span>Clean up your room</span></div>
             <div><b>02</b><span>Return your mattress with your key</span></div>
             <div><b>03</b><span>No noise</span></div>
           </div>
         </div>
+        <p class="hint">Need to change or cancel? Call the front desk with your reference.</p>
       </div>
       <div class="foot foot-2">
         <button class="btn btn-secondary" ${on(() => downloadIcs(g))}>${ICON.cal}Add to calendar</button>
-        <button class="btn btn-secondary" ${on(() => go('type', { confirmed: null }))}>Change booking</button>
+        <button class="btn btn-secondary" ${on(() => go('welcome', { confirmed: null, agree: false, sel: null }))}>Done</button>
       </div>`;
   }
 
   // ── Screens: front desk ─────────────────────────────────────────────────
-  const T = D.TODAY;
-  const covers = (b, k) => sK(b) <= k && k <= eK(b);
-  const bedsOn = (all, k) => D.ALL.reduce((a, n) => {
-    const here = all.filter(b => b.room === n && covers(b, k));
-    return a + (here.some(b => b.type === 'fam') ? D.META[n].cap : here.length);
+  const live = () => state.bookings;
+  const bedsOn = d => ALL.reduce((a, n) => {
+    const here = live().filter(b => b.room === n && GG.covers(b, d));
+    return a + (here.some(b => b.type === 'fam') ? META[n].cap : here.length);
   }, 0);
   const TAG = {
     'Arriving': [OR, '#fff', 'none'], 'Key out': [AMB, INK, 'none'], 'Leaving': ['#fff', ORD, `inset 0 0 0 1.5px ${OR}`],
     'Checked out': [SURF, 'rgba(35,24,21,.6)', 'none'], 'Booked': [ORT, '#8A3212', 'none'],
-    'Arrives': [ORT, '#8A3212', `inset 0 0 0 1.5px ${OR}`], 'Stayed': [SURF, 'rgba(35,24,21,.6)', 'none']
+    'Arrives': [ORT, '#8A3212', `inset 0 0 0 1.5px ${OR}`], 'No show': [SURF, 'rgba(35,24,21,.6)', 'inset 0 0 0 1px rgba(35,24,21,.3)']
   };
-  function statusOf(b, k) {
-    if (k < T) return 'Stayed';
-    if (k > T) return sK(b) === k ? 'Arrives' : 'Booked';
-    if (sK(b) === T) return state.keyDone[b.id] ? 'Key out' : 'Arriving';
-    if (eK(b) === T) return state.returned[b.id] ? 'Checked out' : 'Leaving';
-    return 'Key out';
+  function statusOf(b, d) {
+    if (b.returned) return 'Checked out';
+    if (b.keyDone) return b.end === d ? 'Leaving' : 'Key out';
+    if (d < TODAY) return 'No show';
+    if (b.start === d) return d === TODAY ? 'Arriving' : 'Arrives';
+    return 'Booked';
   }
-  const dayStats = k => {
-    const all = bookings(), beds = bedsOn(all, k);
-    return { beds, avail: D.TOTAL - beds, arr: all.filter(b => covers(b, k) && sK(b) === k).length };
+  const dayStats = d => {
+    const beds = bedsOn(d);
+    return { beds, avail: TOTAL - beds, arr: live().filter(b => b.start === d).length };
   };
+  const dayWord = d => d === TODAY ? 'today' : fmtD(d);
 
   const deskBar = () => `
     <header class="desk-bar">
-      <img src="assets/gilgal-logo.png" alt="Gilgal">
+      <img src="/assets/gilgal-logo.png" alt="Gilgal">
       <span class="label">Front desk</span>
-      <span class="date">${fmtK(T)}</span>
-      <button class="exit" ${on(() => go('welcome'))}>Exit</button>
+      <span class="date">${fmtD(TODAY)}</span>
+      <button class="exit" ${on(logout)}>Log out</button>
     </header>`;
   const deskTabs = cur => `
     <nav class="tabs" aria-label="Front desk">
       ${[['calendar', 'Calendar'], ['dayview', 'Days'], ['checkin', 'Check in'], ['checkout', 'Check out']].map(([id, l]) =>
-        `<button ${id === cur ? 'aria-current="page"' : ''} ${on(() => go(id))}>${l}</button>`).join('')}
+        `<button ${id === cur ? 'aria-current="page"' : ''} ${on(() => { go(id); loadDesk(); })}>${l}</button>`).join('')}
     </nav>`;
 
+  function login() {
+    const submit = async () => {
+      setState({ busy: true, loginErr: '' });
+      try {
+        await api('login', { method: 'POST', body: { password: state.password } });
+        go('calendar', { busy: false, password: '' });
+        loadDesk();
+      } catch (e) { setState({ busy: false, loginErr: e.message }); }
+    };
+    return `
+      <header class="desk-bar">
+        <img src="/assets/gilgal-logo.png" alt="Gilgal">
+        <span class="label">Front desk</span>
+      </header>
+      <form class="main pad" style="padding-top:40px;gap:20px" ${onSubmit(submit)}>
+        <div>
+          <h1 style="font-size:32px">Front desk login</h1>
+          <p class="lede">For Gilgal staff. Guests can book at <a href="/">the booking page</a>.</p>
+        </div>
+        <div class="field"><label for="f-pw">Password</label>
+          <input class="input" id="f-pw" type="password" autocomplete="current-password" value="${esc(state.password)}"
+            ${onInput(e => setState({ password: e.target.value, loginErr: '' }))}></div>
+        ${state.loginErr ? `<div class="error" role="alert">${esc(state.loginErr)}</div>` : ''}
+        <button class="btn btn-primary cta" type="submit" ${!state.password || state.busy ? 'disabled' : ''}><span>${state.busy ? 'Logging in…' : 'Log in'}</span>${ICON.arrow}</button>
+      </form>`;
+  }
+
+  async function logout() {
+    try { await api('logout', { method: 'POST' }); } catch (_) { /* already logged out */ }
+    history.replaceState(null, '', hashOf('calendar'));
+    setState({ screen: 'login', bookings: [] });
+  }
+
   function calendar() {
-    const st = state, all = bookings(), s = dayStats(st.aDay);
-    const cells = monthCells().map(({ d, inMonth, k }) => {
-      if (k < 0) return `<div style="background:${SURF};color:${MUTE}"><div class="top"><span style="font-size:14px;font-weight:400">${inMonth ? d.getDate() : ''}</span></div></div>`;
-      const cnt = bedsOn(all, k), sel = k === st.aDay;
-      const bar = k < T ? 'rgba(35,24,21,.35)' : cnt / D.TOTAL > 0.8 ? OR : AMB;
+    const st = state, s = dayStats(st.aDay);
+    const cells = monthCells(st.aMonth).map(({ d, inMonth }) => {
+      const n = Number(d.slice(8));
+      if (!inMonth) return '<div style="background:#fff"></div>';
+      if (!GG.isOpen(d)) return `<div style="background:${SURF};color:${MUTE}"><div class="top"><span style="font-size:14px;font-weight:400">${n}</span></div></div>`;
+      const cnt = bedsOn(d), sel = d === st.aDay;
+      const bar = d < TODAY ? 'rgba(35,24,21,.35)' : cnt / TOTAL > 0.8 ? OR : AMB;
       return `
-        <button style="background:${sel ? ORT : '#fff'};color:${k < T ? 'rgba(35,24,21,.5)' : INK};cursor:pointer;box-shadow:${sel ? `inset 0 0 0 2px ${OR}` : 'none'}"
-          aria-pressed="${sel}" aria-label="${esc(fmtK(k))}, ${cnt} of ${D.TOTAL} beds" ${on(() => setState({ aDay: k }))}>
-          <div class="top"><span style="font-size:14px;font-weight:700">${d.getDate()}</span><span class="tag">${k === T ? 'Today' : ''}</span></div>
-          <span class="cnt">${cnt}<span>/${D.TOTAL}</span></span>
-          <div class="bar-track"><i style="width:${Math.round(cnt / D.TOTAL * 100)}%;background:${bar}"></i></div>
+        <button style="background:${sel ? ORT : '#fff'};color:${d < TODAY ? 'rgba(35,24,21,.5)' : INK};cursor:pointer;box-shadow:${sel ? `inset 0 0 0 2px ${OR}` : 'none'}"
+          aria-pressed="${sel}" aria-label="${esc(fmtD(d))}, ${cnt} of ${TOTAL} beds" ${on(() => setState({ aDay: d }))}>
+          <div class="top"><span style="font-size:14px;font-weight:700">${n}</span><span class="tag">${d === TODAY ? 'Today' : ''}</span></div>
+          <span class="cnt">${cnt}<span>/${TOTAL}</span></span>
+          <div class="bar-track"><i style="width:${Math.round(cnt / TOTAL * 100)}%;background:${bar}"></i></div>
         </button>`;
     }).join('');
     return `
       ${deskBar()}
       <div class="main" style="padding:20px 16px 20px;gap:14px">
+        ${errorLine()}
         <div class="month-head" style="padding:0 4px;margin:0">
-          <h2 style="font-size:24px;letter-spacing:-.02em">October 2026</h2>
+          <h2 style="font-size:24px;letter-spacing:-.02em">${monthLabel(st.aMonth)}</h2>
           <div class="nav">
-            <button class="btn btn-secondary btn-icon" disabled aria-label="Previous month">${ICON.prev}</button>
-            <button class="btn btn-secondary btn-icon" disabled aria-label="Next month">${ICON.next}</button>
+            <button class="btn btn-secondary btn-icon" ${on(() => setState(s => ({ aMonth: addMonths(s.aMonth, -1) })))} aria-label="Previous month">${ICON.prev}</button>
+            <button class="btn btn-secondary btn-icon" ${on(() => setState(s => ({ aMonth: addMonths(s.aMonth, 1) })))} aria-label="Next month">${ICON.next}</button>
           </div>
         </div>
         <div>
           <div class="acal-head"><span>M</span><span>T</span><span>W</span><span>T</span><span class="open">Fri</span><span class="open">Sat</span><span class="open">Sun</span></div>
           <div class="acal">${cells}</div>
-          <div style="padding:6px 4px 0;font-size:11px;color:rgba(35,24,21,.55)">Bed spaces booked of ${D.TOTAL}. A family booking counts every bed in its room.</div>
+          <div style="padding:6px 4px 0;font-size:11px;color:rgba(35,24,21,.55)">Bed spaces booked of ${TOTAL}. A family booking counts every bed in its room.</div>
         </div>
         <div class="grid3 rule-y kpis">
-          <div><div class="cap">${fmtK(st.aDay)}</div><b>${s.beds} <span style="font-size:12px;font-weight:400;opacity:.6">beds</span></b></div>
+          <div><div class="cap">${fmtD(st.aDay)}</div><b>${s.beds} <span style="font-size:12px;font-weight:400;opacity:.6">beds</span></b></div>
           <div><div class="cap">Available</div><b>${s.avail}</b></div>
           <div><div class="cap">Arriving</div><b style="color:${ORD}">${s.arr}</b></div>
         </div>
-        <button class="btn btn-primary cta" style="padding:14px 16px;font-size:15px;flex:none" ${on(() => go('dayview'))}><span>Open ${fmtK(st.aDay)} in days view</span>${ICON.arrow}</button>
+        <button class="btn btn-primary cta" style="padding:14px 16px;font-size:15px;flex:none" ${on(() => go('dayview'))}><span>Open ${fmtD(st.aDay)} in days view</span>${ICON.arrow}</button>
       </div>
       ${deskTabs('calendar')}`;
   }
 
+  const stepDay = dir => setState(s => {
+    const d = GG.nextOpen(GG.addDays(s.aDay, dir), dir);
+    return { aDay: d, aMonth: d.slice(0, 7), inIdx: 0, outIdx: 0 };
+  });
+
   function dayview() {
-    const st = state, k = st.aDay, s = dayStats(k);
-    const onDay = bookings().filter(b => covers(b, k));
+    const k = state.aDay, s = dayStats(k);
+    const onDay = live().filter(b => GG.covers(b, k));
     const person = (b, label) => {
       const sx = statusOf(b, k), t = TAG[sx];
       return `<div class="person"><span>${esc(label)}</span><span class="pill" style="background:${t[0]};color:${t[1]};box-shadow:${t[2]}">${sx}</span></div>`;
     };
-    const groups = D.B.flatMap(b => b.floors.map(f => {
+    const groups = BUILDINGS.flatMap(b => b.floors.map(f => {
       const rows = f.nums.map(n => {
         const here = onDay.filter(x => x.room === n), fam = here.find(x => x.type === 'fam'), cap = f.cap;
         let kind, kindColor, occ, numColor = INK, people = '';
@@ -582,30 +618,34 @@
       }).join('');
       return `<div class="group-h">${b.floors.length > 1 ? `${b.name} — ${f.name}` : b.name}</div>${rows}`;
     })).join('');
-    const rel = k === T ? 'Today' : k < T ? 'Past' : k - T === 1 ? 'Tomorrow' : 'Upcoming';
+    const rel = k === TODAY ? 'Today' : k < TODAY ? 'Past' : k === GG.addDays(TODAY, 1) ? 'Tomorrow' : 'Upcoming';
     return `
       ${deskBar()}
       <div class="day-nav">
-        <button class="btn btn-icon" ${k > 0 ? on(() => setState(s => ({ aDay: s.aDay - 1 }))) : 'disabled'} aria-label="Previous day">${ICON.back}</button>
-        <div class="d"><b>${longK(k)}</b><span>${rel}</span></div>
-        <button class="btn btn-icon" ${k < D.OPEN.length - 1 ? on(() => setState(s => ({ aDay: s.aDay + 1 }))) : 'disabled'} aria-label="Next day">${ICON.next.replace(/18/g, '20')}</button>
+        <button class="btn btn-icon" ${on(() => stepDay(-1))} aria-label="Previous open day">${ICON.back}</button>
+        <div class="d"><b>${longD(k)}</b><span>${rel}</span></div>
+        <button class="btn btn-icon" ${on(() => stepDay(1))} aria-label="Next open day">${ICON.fwd}</button>
       </div>
       <div class="grid3 day-kpis">
         <div><b>${s.beds}</b><div class="cap">Beds booked</div></div>
         <div><b>${s.avail}</b><div class="cap">Beds available</div></div>
         <div class="arr"><b>${s.arr}</b><div class="cap">Arriving</div></div>
       </div>
-      <div class="main">${groups}</div>
+      <div class="main">${errorLine()}${groups}</div>
       ${deskTabs('dayview')}`;
   }
 
   // Booking detail shared by check in / out.
-  const mkRef = b => b.ref || `GGC-26-0${100 + (b.room % 100) * 3 + (b.bed || 0)}`;
   const surname = b => b.type === 'fam' ? b.name.replace(' family', '') : b.name.split(' ').pop();
   const typeTxt = b => b.type === 'fam' ? `Family of ${b.size} · whole room` : `Individual · ${b.g === 'F' ? 'Female' : 'Male'}`;
   const mats = b => b.type === 'fam' ? b.size : 1;
-  const now = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const toggle = (key, id) => () => setState(s => ({ [key]: { ...s[key], [id]: !s[key][id] } }));
+  const keyOf = b => b.keyNo ?? (b.type === 'fam' ? `K-${b.room}` : `K-${b.room}-${b.bed}`);
+  const dayNav = () => `
+    <div class="day-nav" style="padding:8px">
+      <button class="btn btn-icon" ${on(() => stepDay(-1))} aria-label="Previous open day">${ICON.back}</button>
+      <div class="d"><b style="font-size:16px">${longD(state.aDay)}</b></div>
+      <button class="btn btn-icon" ${on(() => stepDay(1))} aria-label="Next open day">${ICON.fwd}</button>
+    </div>`;
   const chips = (list, idx, isDone, setIdx) => list.map((b, i) => {
     const sel = i === idx, done = isDone(b);
     return `<button style="background:${sel ? INK : done ? AMB : '#fff'};color:${sel ? '#fff' : INK};box-shadow:${sel ? 'none' : 'inset 0 0 0 1px rgba(35,24,21,.3)'}"
@@ -613,34 +653,39 @@
   }).join('');
   const whoBlock = b => `
     <div class="who">
-      <div><div style="font-size:12px;color:var(--muted)">${mkRef(b)}</div><h2>${esc(b.name)}</h2><div class="type">${typeTxt(b)}</div></div>
+      <div><div style="font-size:12px;color:var(--muted)">${esc(b.ref)}</div><h2>${esc(b.lead || b.name)}</h2><div class="type">${typeTxt(b)}</div></div>
       <div class="room">${b.room}</div>
     </div>`;
 
   function checkin() {
-    const st = state;
-    const arrs = bookings().filter(b => sK(b) === T).sort((a, c) => a.room - c.room || (a.bed || 0) - (c.bed || 0));
-    const head = `<div class="desk-h"><b>Arriving today</b><span>${arrs.length} bookings · ${arrs.filter(b => !st.keyDone[b.id]).length} still to collect a key</span></div>`;
-    if (!arrs.length) return `${deskBar()}${head}<div class="main empty">No arrivals today.</div>${deskTabs('checkin')}`;
+    const st = state, d = st.aDay;
+    const arrs = live().filter(b => b.start === d).sort((a, c) => a.room - c.room || (a.bed || 0) - (c.bed || 0));
+    const head = `<div class="desk-h"><b>Arriving ${dayWord(d)}</b><span>${arrs.length} booking${arrs.length === 1 ? '' : 's'} · ${arrs.filter(b => !b.keyDone).length} still to collect a key</span></div>`;
+    if (!arrs.length) return `${deskBar()}${dayNav()}${head}<div class="main empty">${errorLine()}No arrivals on ${longD(d)}.</div>${deskTabs('checkin')}`;
     const ii = Math.min(st.inIdx, arrs.length - 1), a = arrs[ii], aid = a.id;
-    const kNo = st.keyNo[aid] ?? (a.type === 'fam' ? `K-${a.room}` : `K-${a.room}-${a.bed}`);
-    const matOk = !!st.matOk[aid], done = st.keyDone[aid];
-    const email = a.email || (a.type === 'fam' ? surname(a) + ' family' : a.name).toLowerCase().replace(/\s+/g, '.') + '@mail.com';
+    const kNo = st.keyDraft[aid] ?? keyOf(a);
+    const matOk = !!a.matOk, done = a.keyDone;
+    const cancel = async () => {
+      if (!confirm(`Cancel ${a.ref} for ${a.lead || a.name}? This frees room ${a.room}.`)) return;
+      try { await api('bookings', { method: 'DELETE', id: aid }); loadDesk(); } catch (e) { setState({ error: e.message }); }
+    };
     return `
       ${deskBar()}
+      ${dayNav()}
       ${head}
-      <div class="chips">${chips(arrs, ii, b => !!st.keyDone[b.id], i => setState({ inIdx: i }))}</div>
+      <div class="chips">${chips(arrs, ii, b => !!b.keyDone, i => setState({ inIdx: i }))}</div>
       <div class="main pad" style="padding:18px 20px;gap:16px">
+        ${errorLine()}
         ${whoBlock(a)}
         <div class="grid2 rule-y facts">
-          <div class="row1"><div class="cap">Stay</div><div class="v">${rangeTxt(sK(a), eK(a))}</div></div>
-          <div class="row1"><div class="cap">Bed space</div><div class="v">${a.type === 'fam' ? `Whole room · ${D.META[a.room].cap} beds` : `Bed ${a.bed} of ${D.META[a.room].cap}`}</div></div>
-          <div><div class="cap">Phone</div><div class="v sm">${esc(a.phone || D.PHONES[ii % D.PHONES.length])}</div></div>
-          <div><div class="cap">Email</div><div class="v sm">${esc(email)}</div></div>
-          <div class="wide"><div class="cap">Church</div><div class="v">${esc(a.church || '—')}</div></div>
+          <div class="row1"><div class="cap">Stay</div><div class="v">${rangeTxt(a.start, a.end)}</div></div>
+          <div class="row1"><div class="cap">Bed space</div><div class="v">${a.type === 'fam' ? `Whole room · ${META[a.room].cap} beds` : `Bed ${a.bed} of ${META[a.room].cap}`}</div></div>
+          <div><div class="cap">Phone</div><div class="v sm"><a href="tel:${esc(a.phone.replace(/[^\d+]/g, ''))}">${esc(a.phone)}</a></div></div>
+          <div><div class="cap">Email</div><div class="v sm">${esc(a.email)}</div></div>
+          <div class="wide"><div class="cap">Church</div><div class="v">${esc(a.church)}</div></div>
         </div>
         <div>
-          <button class="step" role="checkbox" aria-checked="${matOk}" ${done ? 'disabled' : on(toggle('matOk', aid))} style="min-height:50px">
+          <button class="step" role="checkbox" aria-checked="${matOk}" ${done ? 'disabled' : on(() => patchBooking(aid, { matOk: !matOk }))} style="min-height:50px">
             <span class="box ${matOk ? 'on' : ''}">${matOk ? ICON.check : ''}</span>
             <span class="lbl">Give ${matWord(mats(a))}</span>
             <span class="state">${matOk ? 'Given' : 'Tap'}</span>
@@ -648,45 +693,49 @@
           <div class="step key">
             <span class="box">2</span>
             <label for="f-key" class="lbl">Key tag</label>
-            <input class="input" id="f-key" value="${esc(kNo)}" ${done ? 'disabled' : ''} ${onInput(e => { const v = e.target.value; setState(s => ({ keyNo: { ...s.keyNo, [aid]: v } })); })}>
+            <input class="input" id="f-key" value="${esc(kNo)}" ${done ? 'disabled' : ''}
+              ${onInput(e => { const v = e.target.value; setState(s => ({ keyDraft: { ...s.keyDraft, [aid]: v } })); })}
+              ${onChange(e => patchBooking(aid, { keyNo: e.target.value }))}>
           </div>
         </div>
+        ${done ? '' : `<button class="btn link-cancel" ${on(cancel)}>Cancel this booking</button>`}
       </div>
       <div class="foot">
         ${done
-          ? `<div class="done-bar amber">${ICON.checkLg()}<div>Key ${esc(kNo)} + ${matWord(mats(a))} given · ${done}</div>
-               <button class="btn" ${on(() => setState(s => { const k = { ...s.keyDone }; delete k[aid]; return { keyDone: k }; }))}>Undo</button></div>`
-          : cta(`Hand over key ${esc(kNo)}`, () => setState(s => ({ keyDone: { ...s.keyDone, [aid]: now() } })), !matOk || !kNo.trim(), ICON.key)}
+          ? `<div class="done-bar amber">${ICON.checkLg()}<div>Key ${esc(kNo)} + ${matWord(mats(a))} given · ${timeOf(done)}</div>
+               <button class="btn" ${on(() => patchBooking(aid, { keyDone: false }))}>Undo</button></div>`
+          : cta(`Hand over key ${esc(kNo)}`, () => patchBooking(aid, { keyNo: kNo, keyDone: true }), !matOk || !kNo.trim(), ICON.key)}
       </div>
       ${deskTabs('checkin')}`;
   }
 
   function checkout() {
-    const st = state;
-    const deps = bookings().filter(b => eK(b) === T && sK(b) < T).sort((x, y) => x.room - y.room || (x.bed || 0) - (y.bed || 0));
-    const head = `<div class="desk-h"><b>Leaving today</b><span>${deps.length} bookings · ${deps.filter(b => !st.returned[b.id]).length} still to check out</span></div>`;
-    if (!deps.length) return `${deskBar()}${head}<div class="main empty">No departures today.</div>${deskTabs('checkout')}`;
-    const oi = Math.min(st.outIdx, deps.length - 1), o = deps[oi], oid = o.id;
-    const oKey = o.type === 'fam' ? `K-${o.room}` : `K-${o.room}-${o.bed}`, done = st.returned[oid];
+    const st = state, d = st.aDay;
+    const deps = live().filter(b => b.end === d).sort((x, y) => x.room - y.room || (x.bed || 0) - (y.bed || 0));
+    const head = `<div class="desk-h"><b>Leaving ${dayWord(d)}</b><span>${deps.length} booking${deps.length === 1 ? '' : 's'} · ${deps.filter(b => !b.returned).length} still to check out</span></div>`;
+    if (!deps.length) return `${deskBar()}${dayNav()}${head}<div class="main empty">${errorLine()}No departures on ${longD(d)}.</div>${deskTabs('checkout')}`;
+    const oi = Math.min(st.outIdx, deps.length - 1), o = deps[oi], oid = o.id, done = o.returned;
     const steps = [
-      ['retKey', `Key ${oKey} returned`, ''],
-      ['retMat', `${matWord(mats(o))} returned`, 'House rule 02'],
-      ['retClean', o.type === 'fam' ? 'Room cleaned up' : 'Bed space cleaned up', 'House rule 01']
-    ].map(([k, label, rule]) => ({ k, label, rule, ok: !!st[k][oid] }));
+      ['retKey', `Key ${keyOf(o)} returned`, ''],
+      ['retMat', `${matWord(mats(o))} returned`, 'Gilgal Ground Rule 02'],
+      ['retClean', o.type === 'fam' ? 'Room cleaned up' : 'Bed space cleaned up', 'Gilgal Ground Rule 01']
+    ].map(([k, label, rule]) => ({ k, label, rule, ok: !!o[k] }));
     const short = o.type === 'fam' ? `room ${o.room}` : `bed ${o.bed}, room ${o.room}`;
     return `
       ${deskBar()}
+      ${dayNav()}
       ${head}
-      <div class="chips">${chips(deps, oi, b => !!st.returned[b.id], i => setState({ outIdx: i }))}</div>
+      <div class="chips">${chips(deps, oi, b => !!b.returned, i => setState({ outIdx: i }))}</div>
       <div class="main pad" style="padding:18px 20px;gap:16px">
+        ${errorLine()}
         ${whoBlock(o)}
         <div class="grid2 rule-y facts">
-          <div><div class="cap">Stayed</div><div class="v">${rangeTxt(sK(o), eK(o))}</div></div>
+          <div><div class="cap">Stayed</div><div class="v">${rangeTxt(o.start, o.end)}</div></div>
           <div><div class="cap">To collect</div><div class="v">1 key · ${matWord(mats(o))}</div></div>
         </div>
         <div style="border-top:2px solid var(--line)">
           ${steps.map(s => `
-            <button class="step" role="checkbox" aria-checked="${s.ok}" ${done ? 'disabled' : on(toggle(s.k, oid))}>
+            <button class="step" role="checkbox" aria-checked="${s.ok}" ${done ? 'disabled' : on(() => patchBooking(oid, { [s.k]: !s.ok }))}>
               <span class="box ${s.ok ? 'on' : ''}">${s.ok ? ICON.check : ''}</span>
               <span class="lbl"><span>${s.label}</span>${s.rule ? `<span class="rule">${s.rule}</span>` : ''}</span>
               <span class="state">${s.ok ? 'Done' : 'Tap'}</span>
@@ -695,16 +744,18 @@
       </div>
       <div class="foot">
         ${done
-          ? `<div class="done-bar ink">${ICON.checkLg(AMB)}<div>${o.type === 'fam' ? 'Room ' + o.room : 'Bed ' + o.bed + ' in ' + o.room} is available again · ${done}</div>
-               <button class="btn" style="border-color:rgba(255,255,255,.5)" ${on(() => setState(s => { const k = { ...s.returned }; delete k[oid]; return { returned: k }; }))}>Undo</button></div>`
-          : cta(`Check out ${short}`, () => setState(s => ({ returned: { ...s.returned, [oid]: now() } })), !steps.every(s => s.ok))}
+          ? `<div class="done-bar ink">${ICON.checkLg(AMB)}<div>Checked out ${short} · ${timeOf(done)}</div>
+               <button class="btn" style="border-color:rgba(255,255,255,.5)" ${on(() => patchBooking(oid, { returned: false }))}>Undo</button></div>`
+          : cta(`Check out ${short}`, () => patchBooking(oid, { returned: true }), !steps.every(s => s.ok))}
       </div>
       ${deskTabs('checkout')}`;
   }
 
+  const loading = () => `<div class="main empty">Loading…</div>`;
+
   // ── Render loop ─────────────────────────────────────────────────────────
-  const SCREENS = { welcome, rules, type, days, rooms, details, confirmed, calendar, dayview, checkin, checkout };
-  const TITLES = { welcome: 'Gilgal Ground Chalets', calendar: 'Front desk', dayview: 'Front desk · Days', checkin: 'Front desk · Check in', checkout: 'Front desk · Check out' };
+  const SCREENS = { welcome, rules, type, days, rooms, details, confirmed, login, calendar, dayview, checkin, checkout, loading };
+  const TITLES = { welcome: 'Gilgal Ground Chalets', login: 'Front desk login', calendar: 'Front desk', dayview: 'Front desk · Days', checkin: 'Front desk · Check in', checkout: 'Front desk · Check out' };
   const app = document.getElementById('app');
   let lastScreen = null;
 
@@ -738,10 +789,31 @@
     const el = e.target.closest('[data-in]');
     if (el) handlers[+el.dataset.in]?.(e);
   });
+  app.addEventListener('change', e => {
+    const el = e.target.closest('[data-change]');
+    if (el && el === e.target) handlers[+el.dataset.change]?.(e);
+  });
+  app.addEventListener('submit', e => {
+    e.preventDefault();
+    const el = e.target.closest('[data-submit]');
+    if (el) handlers[+el.dataset.submit]?.(e);
+  });
 
-  const initial = location.hash.replace(/^#\/?/, '');
-  // Deep links into the guest flow past the rules start over; front desk screens open directly.
-  if (DESK.includes(initial) || initial === 'rules') state.screen = initial;
-  history.replaceState(null, '', '#/' + state.screen);
-  render();
+  // ── Start ───────────────────────────────────────────────────────────────
+  if (IS_ADMIN) {
+    render();
+    api('session').then(s => {
+      const want = location.hash.replace(/^#\/(admin\/)?/, '');
+      if (!s.admin) return setState({ screen: 'login' });
+      setState({ screen: DESK.includes(want) ? want : 'calendar' });
+      loadDesk();
+      setInterval(() => { if (DESK.includes(state.screen) && document.visibilityState === 'visible') loadDesk(); }, 30000);
+    }).catch(e => setState({ screen: 'login', loginErr: e.message }));
+  } else {
+    const initial = location.hash.replace(/^#\/?/, '');
+    if (initial === 'rules') state.screen = 'rules';
+    history.replaceState(null, '', '#/' + state.screen);
+    render();
+    loadAvail();
+  }
 })();

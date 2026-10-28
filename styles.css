@@ -139,8 +139,6 @@ button { font: inherit; color: inherit; }
 .welcome-steps b { font-size: 13px; }
 .btn-white { background: #fff; color: var(--ink); }
 .link-btn { justify-content: flex-start; padding: 6px 0; font-size: 14px; color: #fff; text-decoration: underline; text-underline-offset: 3px; }
-.welcome-links { display: flex; justify-content: space-between; align-items: center; }
-.link-btn.dim { opacity: .8; font-weight: 500; font-size: 13px; }
 
 /* — house rules — */
 .rules > div { display: grid; grid-template-columns: 52px minmax(0, 1fr); padding: 18px 0; border-bottom: 1px solid var(--line-soft); }
@@ -317,3 +315,10 @@ button { font: inherit; color: inherit; }
 .done-bar.amber { background: var(--amber); color: var(--ink); }
 .done-bar.ink { background: var(--ink); color: #fff; }
 .done-bar .btn { font-size: 13px; padding: 8px 10px; border: 1px solid currentColor; color: inherit; }
+
+/* — messages — */
+.error { padding: 12px 14px; background: var(--accent-100); color: var(--accent-800); font-size: 14px; line-height: 1.45; box-shadow: inset 3px 0 0 var(--accent); }
+.main > .error { flex: none; }
+.link-cancel { align-self: flex-start; padding: 6px 0; font-size: 13px; font-weight: 600; color: var(--accent-700); text-decoration: underline; text-underline-offset: 3px; }
+.facts a { color: inherit; }
+.lede a { color: var(--accent-700); }
