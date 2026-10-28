@@ -17,6 +17,7 @@ const GG = require('../lib/core');
 const HOSTED = process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview';
 const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'Admin').trim();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (HOSTED ? '' : 'gilgal-admin');
 const COOKIE = 'gg_admin';
 const SESSION_HOURS = 12;
@@ -166,8 +167,11 @@ module.exports = async function handler(req, res) {
       if (!ADMIN_PASSWORD) return send(res, 503, { error: 'Set ADMIN_PASSWORD in Vercel → Settings → Environment Variables, then redeploy.' });
       const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
       if ((await store.hit(`gg:login:${ip}`, 900)) > 10) return send(res, 429, { error: 'Too many tries. Wait 15 minutes.' });
-      const { password } = await readBody(req);
-      if (!safeEqual(password || '', ADMIN_PASSWORD)) return send(res, 401, { error: 'Wrong password.' });
+      const { username, password } = await readBody(req);
+      // Username ignores case; the password must match exactly.
+      const userOk = safeEqual(String(username || '').trim().toLowerCase(), ADMIN_USERNAME.toLowerCase());
+      const passOk = safeEqual(password || '', ADMIN_PASSWORD);
+      if (!userOk || !passOk) return send(res, 401, { error: 'Wrong username or password.' });
       setSession(res, true);
       return send(res, 200, { admin: true });
     }

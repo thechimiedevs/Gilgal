@@ -10,7 +10,7 @@ Plain HTML, CSS and JavaScript, plus one Vercel function (`api/router.js`) that 
 ## Set up on Vercel (once)
 
 1. **Database:** in your Vercel project, open **Storage → Create Database → Upstash (Redis)**, create it on the free plan and connect it to this project. This adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` for you.
-2. **Admin password:** open **Settings → Environment Variables** and add `ADMIN_PASSWORD` with the password front desk staff will use.
+2. **Admin login:** open **Settings → Environment Variables** and add `ADMIN_PASSWORD` with the password front desk staff will use. The username is `Admin` (not case-sensitive); to change it, add `ADMIN_USERNAME` too.
 3. **Redeploy** (Deployments → ⋯ → Redeploy) so the new settings take effect.
 
 Until both are set, guests see “The booking database isn’t set up yet” and the front desk can’t log in.
@@ -31,7 +31,7 @@ Or import the GitHub repository in Vercel (Framework Preset: **Other**, no build
 node dev-server.js
 ```
 
-Open http://localhost:3000 for guests and http://localhost:3000/admin for the front desk (password `gilgal-admin`, or set `ADMIN_PASSWORD`). Locally, bookings are kept in memory and cleared when you stop the server.
+Open http://localhost:3000 for guests and http://localhost:3000/admin for the front desk (username `Admin`, password `gilgal-admin`, or set `ADMIN_PASSWORD`). Locally, bookings are kept in memory and cleared when you stop the server.
 
 ## Where things live
 

@@ -22,7 +22,7 @@
     avail: [], availAt: 0, confirmed: null, busy: false, error: '',
     // front desk
     bookings: [], aDay: firstDay, aMonth: firstDay.slice(0, 7), inIdx: 0, outIdx: 0, keyDraft: {},
-    password: '', loginErr: ''
+    username: '', password: '', loginErr: ''
   };
 
   function setState(patch) {
@@ -515,7 +515,7 @@
     const submit = async () => {
       setState({ busy: true, loginErr: '' });
       try {
-        await api('login', { method: 'POST', body: { password: state.password } });
+        await api('login', { method: 'POST', body: { username: state.username, password: state.password } });
         go('calendar', { busy: false, password: '' });
         loadDesk();
       } catch (e) { setState({ busy: false, loginErr: e.message }); }
@@ -530,11 +530,14 @@
           <h1 style="font-size:32px">Front desk login</h1>
           <p class="lede">For Gilgal staff. Guests can book at <a href="/">the booking page</a>.</p>
         </div>
+        <div class="field"><label for="f-user">Username</label>
+          <input class="input" id="f-user" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(state.username)}"
+            ${onInput(e => setState({ username: e.target.value, loginErr: '' }))}></div>
         <div class="field"><label for="f-pw">Password</label>
           <input class="input" id="f-pw" type="password" autocomplete="current-password" value="${esc(state.password)}"
             ${onInput(e => setState({ password: e.target.value, loginErr: '' }))}></div>
         ${state.loginErr ? `<div class="error" role="alert">${esc(state.loginErr)}</div>` : ''}
-        <button class="btn btn-primary cta" type="submit" ${!state.password || state.busy ? 'disabled' : ''}><span>${state.busy ? 'Logging in…' : 'Log in'}</span>${ICON.arrow}</button>
+        <button class="btn btn-primary cta" type="submit" ${!state.username.trim() || !state.password || state.busy ? 'disabled' : ''}><span>${state.busy ? 'Logging in…' : 'Log in'}</span>${ICON.arrow}</button>
       </form>`;
   }
 
