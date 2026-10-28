@@ -15,8 +15,16 @@ const crypto = require('crypto');
 const GG = require('../lib/core');
 
 const HOSTED = process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview';
-const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// Vercel's Upstash integration names these KV_REST_API_*, or <PREFIX>_KV_REST_API_* when a
+// custom prefix was chosen while connecting; Upstash's own console uses UPSTASH_REDIS_REST_*.
+const envEnding = suffix => {
+  const exact = ['KV_' + suffix, 'UPSTASH_REDIS_' + suffix].find(k => process.env[k]);
+  if (exact) return process.env[exact];
+  const k = Object.keys(process.env).find(n => n.endsWith('_' + suffix) && !n.includes('READ_ONLY') && process.env[n]);
+  return k ? process.env[k] : '';
+};
+const REDIS_URL = envEnding('REST_API_URL') || process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = envEnding('REST_API_TOKEN') || process.env.UPSTASH_REDIS_REST_TOKEN;
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'Admin').trim();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (HOSTED ? '' : 'gilgal-admin');
 const COOKIE = 'gg_admin';
@@ -161,7 +169,20 @@ module.exports = async function handler(req, res) {
 
     if (route === 'session' && method === 'GET') return send(res, 200, { admin: isAdmin(req), today: GG.today() });
 
-    if (!store) return send(res, 503, { error: 'The booking database isn’t set up yet. Add Upstash Redis in Vercel → Storage, then redeploy.' });
+    // Setup check: which settings this deploy can see (names only, never values).
+    if (route === 'health' && method === 'GET') {
+      let database = REDIS_URL && REDIS_TOKEN ? 'connected' : HOSTED ? 'missing' : 'memory (local preview)';
+      if (REDIS_URL && REDIS_TOKEN) {
+        try { await redis('PING'); } catch (e) { database = 'found but not reachable: ' + e.message; }
+      }
+      return send(res, 200, {
+        deployment: process.env.VERCEL_ENV || 'local', database,
+        adminPassword: ADMIN_PASSWORD ? 'set' : 'missing',
+        storageSettingsSeen: Object.keys(process.env).filter(n => /KV|REDIS|UPSTASH/i.test(n)).sort()
+      });
+    }
+
+    if (!store) return send(res, 503, { error: 'The booking database isn’t connected to this deployment yet. Open /api/router?route=health to see what’s missing.' });
 
     if (route === 'login' && method === 'POST') {
       if (!ADMIN_PASSWORD) return send(res, 503, { error: 'Set ADMIN_PASSWORD in Vercel → Settings → Environment Variables, then redeploy.' });
